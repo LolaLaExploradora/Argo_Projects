@@ -203,7 +203,7 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile, cyc_ii, vel_vec, dt_vec, dt_vec_j
     % SBE 41CP new numbers as of 10/10/06
     alph=0.141;
     tau=6.68;
-    % ok = find(isfinite(f.pres) & isfinite(temp_68) & isfinite(f.psal) & f.pres > 0 & pqc < 4 & tqc < 4 & sqc < 4);
+%    ok = find(isfinite(f.pres) & isfinite(temp_68) & isfinite(f.psal) & f.pres > 0 & pqc < 4 & tqc < 4 & sqc < 4);
     % dwest@whoi.edu 6/12/2025 - added last pressure bin 
     ok = find(isfinite(f.pres) & isfinite(temp_68) & isfinite(f.psal) & f.pres>=0 & f.pres<=lastPres & pqc < 4 & tqc < 4 & sqc < 4);
         %ok : number of pressure levels 
@@ -221,7 +221,11 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile, cyc_ii, vel_vec, dt_vec, dt_vec_j
     %%LOLA HERE! THIS IS WHERE YOU PUT IN THE VELOCITY 
     %f.pres - this will automagically be either p or p_adj based on the code
     %above
+
     ncinfo0 = ncinfo(ncfile);
+    %[finfo, vinfo, ginfo] = ncinfo(ncid);
+    %varid = netcdf.inqVarID(ncid,'MEASUREMENT_CODE');
+    %mc = netcdf.getVar(ncid,varid)
     
     % ------------------------------------------------------------
 
@@ -260,21 +264,20 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile, cyc_ii, vel_vec, dt_vec, dt_vec_j
         %the original integer day removed. 
 
 
-        % % figure;
-        % % plot(dt_sec, dpres_m0, '*r', vt_sec, flip(fpres_m), 'b.')
-        % % hold on; set(gca,'ydir','rev')
-        % % legend('Rtraj pres and time', 'Profile pres and interpolated time')
-        % % title('1902425, cycle 2, Pres vs time')
-        % % subtitle('Time here is in seconds, as a fraction of 1 day')
+        figure;
+        plot(dt_sec, dpres_m0, '*r', vt_sec, flip(fpres_m), 'b.')
+        hold on; set(gca,'ydir','rev')
+        legend('Rtraj pres and time', 'Profile pres and interpolated time')
+        title('1902425, cycle 2, Pres vs time')
+        subtitle('Time here is in seconds, as a fraction of 1 day')
         
-        % % figure
-        % % plot(vel_vec{3,1}*-1,dpres_m0(2:end), 'r-*', v_mpers1*-1, flip(fpres_m(1:end-1)), 'b.')
-        % % hold on; set(gca,'ydir','rev')
-        % % title('1902425, cycle 2, Pressure vs Velocity')
-        % % legend('Rtraj pres and vel', 'Profile pres and vel-calculated from interpolated time')
-        % % xlabel('velocity [m/s])')
-        % % ylabel('pressure [m]')
-
+        figure
+        plot(vel_vec{3,1}*-1,dpres_m0(2:end), 'r-*', v_mpers1*-1, flip(fpres_m(1:end-1)), 'b.')
+        hold on; set(gca,'ydir','rev')
+        title('1902425, cycle 2, Pressure vs Velocity')
+        legend('Rtraj pres and vel', 'Profile pres and vel-calculated from interpolated time')
+        xlabel('velocity [m/s])')
+        ylabel('pressure [m]')
         % strictly increasing vs decreasing, respectively
         % all(diff(dpres_m0) > 0);
         % all(diff(dpres_m0) < 0);

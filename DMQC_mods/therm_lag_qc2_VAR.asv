@@ -43,5 +43,5 @@ for ii = 3:nqc
     fprintf(1, ' working on %s ', flname);
     ncfile  = deblank(fullfile(qc2path,flname));
    % apply_therm_lag_bck(ncfile)
-   apply_therm_lag_ViewOnlyInGUI(ncfile, ii, vel_vec, dt_vec, dt_vec_juld, dpres_vec, dpres_m_vec)
+   apply_therm_lag_ViewOnlyInGUI(ncfile, nqc, vel_vec, dt_vec, dt_vec_juld, dpres_vec, dpres_m_vec)
 end
