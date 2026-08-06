@@ -1,4 +1,4 @@
-function apply_therm_lag_ViewOnlyInGUI(ncfile)
+function apply_therm_lag_ViewOnlyInGUI(ncfile, vel_all_vec, dt_all_vec, dpres_all_m_vec)
     % based on ch_tlag_func.m
     % Nov 2010 PER 
     % May 2013  Added code to deal with case of real-time corrections to
@@ -20,26 +20,28 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile)
     % dw, 2023/12/18: Taken from ./old/apply_therm_lag_mp.m, removed code
     % no longer used and cleaned up the SCIENTIFIC_CALIB eq, coef, and
     % comments
-    
+    epoch = datetime(1950, 1, 1, 'TimeZone', 'UTC');
+
     ncid= netcdf.open(ncfile, 'WRITE'); %LP-ncfile is /shared/argo/dmqc/[WMOnum]/[Rfile_cyclenum]
     varid=netcdf.inqVarID(ncid,'WMO_INST_TYPE');
     wmo_inst_type= netcdf.getVar(ncid,varid)';
 
     % dw 4/16/2018 - modified to handle more than one profile
     if strcmp(deblank(wmo_inst_type(1,:)),'852')
-        disp([ncfile,': is not a SBE ctd'])
+        disp([ncfile,': is not a SBE ctd']) %if the ncid==852 then it is not SBE
         netcdf.close(ncid)
         return
-    end
+    end %LP - how does this piece of code allow us to handle>1 proflie though?
     
     varid=netcdf.inqVarID(ncid,'LATITUDE');
     lat =netcdf.getVar(ncid,varid); %LP- why do we need lat?
     
-    varid=netcdf.inqVarID(ncid,'CYCLE_NUMBER'); %LP-this goes unused, we can delete
+    varid=netcdf.inqVarID(ncid,'CYCLE_NUMBER'); %LP - We operate by cycle in this code. 
+    % apply_therm_lag called by therm_lag and the latter is cycle-dependent
     cycle_number= double(netcdf.getVar(ncid,varid));
     
     varid = netcdf.inqDimID(ncid,'N_PROF');
-    [~,N_PROF] = netcdf.inqDim(ncid,varid);
+    [~,N_PROF] = netcdf.inqDim(ncid,varid); %tells us if we have both regular & high freq data
 
     % determine if the float has any prssure adjustment
     varid = netcdf.inqVarID(ncid,'PARAMETER');
@@ -47,12 +49,12 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile)
     pres_index = strmatch('PRES',params(:,:,1,1)');
     varid=netcdf.inqVarID(ncid,'SCIENTIFIC_CALIB_COMMENT');
 
-    % % calib_comments = netcdf.getVar(ncid,varid);
-    % % if strcmp(calib_comments(1:4,pres_index)','none') | isempty(deblank(strcat(calib_comments(:,pres_index)')))   % strcat squeezes out all white space
-    % %     pcomments = 0;
-    % % else
-    % %     pcomments = 1;
-    % % end
+    calib_comments = netcdf.getVar(ncid,varid);
+    if strcmp(calib_comments(1:4,pres_index)','none') | isempty(deblank(strcat(calib_comments(:,pres_index)')))   % strcat squeezes out all white space
+        pcomments = 0;
+    else
+        pcomments = 1;
+    end
     
     %also look to see if there is data in PRES_ADJUSTED
     % and whether it is different numerically than PRES  % PER Dec 6. 2017
@@ -70,11 +72,14 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile)
         end
     end
     
-    % are there sufficient number of levels to make calculation
-    thedim=netcdf.inqDimID(ncid,'N_LEVELS');
+    % are there sufficient number of levels (>2) to make calculation
+    thedim=netcdf.inqDimID(ncid,'N_LEVELS'); %thedim - a "zero-based dimension identifier" basically tells the next line where to look for the N_LEVELS variable
     [~, nd] = netcdf.inqDim(ncid,thedim);
-    
-    if nd < 4
+    % N_LEVELS: Max num of pres levels contained in a profile.  
+    % ex. if your CTD is 2dbar-binned to 2000dbar then N_LEVELS=1000
+    % https://cdn.ioos.noaa.gov/media/2020/03/argo_user_manual_v3.3a.pdf
+
+    if nd < 4 %<4 means there are <2 data points, so no calc can be made
         disp([ncfile,': not enough points to calculate thermal lag'])
         copy_to_adjusted;
         netcdf.close(ncid)
@@ -191,7 +196,6 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile)
     else
         lastPres = max(f.pres);
     end
-
     
     % calculate the salinity corrected for thermal lag
     % for WHOI SOLOs, vel = 10 cm/s
@@ -202,8 +206,9 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile)
 %    ok = find(isfinite(f.pres) & isfinite(temp_68) & isfinite(f.psal) & f.pres > 0 & pqc < 4 & tqc < 4 & sqc < 4);
     % dwest@whoi.edu 6/12/2025 - added last pressure bin 
     ok = find(isfinite(f.pres) & isfinite(temp_68) & isfinite(f.psal) & f.pres>=0 & f.pres<=lastPres & pqc < 4 & tqc < 4 & sqc < 4);
+        %ok : number of pressure levels 
     nok = length(ok);
-    ref = max(ok);
+    ref = max(ok); 
     
     if isempty(ref) || nok <2;
         disp(['Unable to find valid pressure (or T, S) data: ',ncfile])
@@ -211,7 +216,24 @@ function apply_therm_lag_ViewOnlyInGUI(ncfile)
         netcdf.close(ncid)
         return
     end
+
+    % ------------------------------------------------------------
+    %%LOLA HERE! THIS IS WHERE YOU PUT IN THE VELOCITY 
+    %f.pres - this will automagically be either p or p_adj based on the code
+    %above
+    %now what you need is to match the velocity you calculated to the
+    %pressures here, i.e.:
+    % profile pressure = 1500 --> find matching velocity from table/vector of
+    % values 
     
+    [finfo, vinfo, ginfo] = ncinfo(ncid);
+        varid = netcdf.inqVarID(ncid,'MEASUREMENT_CODE');
+    mc = netcdf.getVar(ncid,varid)
+    
+    ncinfo0 = ncinfo(ncfile);
+    
+    % ------------------------------------------------------------
+
     e_time = sw_dpth(f.pres',lat(1))/vel;
     e_time = e_time(ref)-e_time'; % rise time
     

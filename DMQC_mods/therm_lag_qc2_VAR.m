@@ -1,4 +1,4 @@
-function therm_lag_qc2_mp(wmonum)
+function therm_lag_qc2_VAR(wmonum)
 %function therm_lag_qc2(wmonum)
 % np - profile number (optional)
 % dw 4/10/2018: modified to add potential for multiple profiles
@@ -12,6 +12,7 @@ QC2 = [ARGODMQC,'/QC2/'];
 
 qc2path  = [QC2,num2str(wmonum),'/'];
 qc1path  = [QC1,num2str(wmonum),'/'];
+Rtrajpath = [ARGOGDAC,'dac/aoml/', num2str(wmonum), '/'];
 
 if exist(qc2path) ~=7
     disp(['Making directory: ',qc2path])
@@ -30,12 +31,17 @@ w=dir(qc2path);
 % sort names because matlab doesn't understand english
 tw=strvcat(w.name); 
 wqc=sortrows(tw); 
-nqc = length(strmatch('R',wqc(:,1)));
+nqc = length(strmatch('R',wqc(:,1))); 
+  %number of files starting with 'R' i.e. no. of cycles bc directory QC2
+  %will only ever have R files in it. 
 iqc = strmatch('R',wqc(:,1));
-for ii = 1:nqc 
+
+[vel_vec, dt_vec, dpres_vec] = calc_VAR_MC(wmonum, Rtrajpath, nqc)
+
+for ii = 3:nqc 
     flname = wqc(iqc(ii),:);
     fprintf(1, ' working on %s ', flname);
     ncfile  = deblank(fullfile(qc2path,flname));
    % apply_therm_lag_bck(ncfile)
-   apply_therm_lag_mp(ncfile)
+   apply_therm_lag_ViewOnlyInGUI(ncfile, vel_vec, dt_vec, dpres_vec)
 end
