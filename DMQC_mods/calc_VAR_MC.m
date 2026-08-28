@@ -35,7 +35,7 @@ vel_vec=[]; cycles_incmplt_mc=[]; dpres_vec={};
 dt_vec={}; dpres_m_vec={}; vel_vec={}; dt_vec_juld={};
 
 skip_next = false;
-figure;
+
 for i = 1:length(mc_combo)
     
     if skip_next
@@ -69,9 +69,9 @@ for i = 1:length(mc_combo)
         dpres_vec(end+1,:) = {dpres};
         %insert here an if statement that does not let the velocity calc
         %occur if there is not a sufficient/matching number of latitudes
-        dpres_m = sw_dpth(dpres, lat(i+1)); %in METERS
-          dpres_m_vec(end+1,:) = {dpres_m};
-        vel_vec(end+1,:) = {diff(dpres_m)./seconds(diff(dt))}; %pres[m]/time[s]
+        %dpres_m = sw_dpth(dpres, lat(i+1)); %in METERS
+          %dpres_m_vec(end+1,:) = {dpres_m};
+        %vel_vec(end+1,:) = {diff(dpres_m)./seconds(diff(dt))}; %pres[m]/time[s]
         skip_next=true;
     end
     
