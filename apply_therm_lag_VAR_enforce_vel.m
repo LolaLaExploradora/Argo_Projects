@@ -306,19 +306,14 @@ if ~isempty(pres_p_m_inv)
 end
 
 
-% we also track if fpres is out of bounds of dpres. All values removed from
-% fpres due to pres invs, duplicates, or being out of bounds of dpres will
-% result in NaNs for psal due to lack of sufficient information for
-% calculation of thermal lag.
-mask_max_lgc = false(size(pres_p_m));
-inds_max = find(pres_p_m>max(pres_rt_m));
-mask_max_lgc(inds_max) = true;
-track_masks{1,3} = mask_max_lgc;
 %should I also track where fpres is less than the minimum of dpres?
-salt_cor_mask = track_masks{1,1}|track_masks{1,2}|track_masks{1,3};
+salt_cor_mask = track_masks{1,1}|track_masks{1,2}
 
-%% Interpolate relative time (seconds) for Profile pressure
-vt_sec = interp1(pres_rt_m_msk, t_rt_sec, pres_p_m_msk, 'linear');
+%% Assign velocity to profile pressure wrt pressure bins of rtraj pressure 
+%note that if profile pressure values fall below/above rtraj pressure values 
+%the simplest solution is to fill in those values with nearest neighbor,
+%which is what we are going to do. 
+Y = discretize(pres_p_m_msk, pres_rt_m_msk)
 
 %% Velocity     
 %it is possible for velocity to have nans if fpres_m_maskd has values out
