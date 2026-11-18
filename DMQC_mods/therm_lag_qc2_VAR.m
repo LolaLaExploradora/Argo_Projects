@@ -36,7 +36,7 @@ nqc = length(strmatch('R',wqc(:,1)));
   %will only ever have R files in it. 
 iqc = strmatch('R',wqc(:,1));
 
-[vel_vec, dt_vec, dt_vec_juld, dpres_vec, dpres_m_vec] = calc_VAR_MC(wmonum, Rtrajpath, nqc)
+[vel_vec, dt_vec, dt_vec_juld, dpres_vec, dpres_m_vec] = calc_VAR_MC(wmonum, Rtrajpath, nqc);
 
 for ii = 3:nqc 
     flname = wqc(iqc(ii),:);

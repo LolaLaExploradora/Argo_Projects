@@ -205,6 +205,7 @@ alph=0.141;
 tau=6.68;
 % ok = find(isfinite(f.pres) & isfinite(temp_68) & isfinite(f.psal) & f.pres > 0 & pqc < 4 & tqc < 4 & sqc < 4);
 % dwest@whoi.edu 6/12/2025 - added last pressure bin 
+% The next line compares several logical vectors
 ok = find(isfinite(f.pres) & isfinite(temp_68) & isfinite(f.psal) & f.pres>=0 & f.pres<=lastPres & pqc < 4 & tqc < 4 & sqc < 4);
     %ok : number of pressure levels 
 nok = length(ok);
@@ -212,76 +213,138 @@ ref = max(ok);
 
 if isempty(ref) || nok <2;
     disp(['Unable to find valid pressure (or T, S) data: ',ncfile])
-    copy_to_adjusted;
+    copy_to_adjusted; %this copies temp and pres 
     netcdf.close(ncid)
     return
 end
 
 % ------------------------------------------------------------
 %% Lola's code changes to include VAR start here
-ncinfo0 = ncinfo(ncfile);
 
 %if we do not have sufficient mc code data, use the old velocity calc code:
 vel_static = .1;
 e_time00 = sw_dpth(f.pres',lat(1))/vel_static;
 e_time11 = e_time00(ref)-e_time00'; % rise time
 
-%else if we do have it, calc it
-%% Data from Rtraj - dpres and dt
+
+%% Rtraj data - dpres and dt
 % pressure
 dpres_m = sw_dpth(dpres_vec{cycle_number(1)+1}, lat(1));
-fpres_m = sw_dpth(flip(f.pres'), lat(1)); %flip pres so deep-->shallow
 % time
 dt = dt_vec_juld{cyc_ii,1};
 int_day = floor(dt(1));
 dt_fracDay = dt-int_day;
-dt_sec = [dt_fracDay*86400]; %relative time wrt day, in sec
+dt_sec = dt_fracDay*86400; %relative time wrt day, in sec
+
+%% Profile data - pressure
+fpres_m = sw_dpth(flip(f.pres(ok)'), lat(1)); %flip pres so deep-->shallow
+%using the "ok" logical mask here to reject any data points that correspond
+%to pressure, temp, or salinity having QC=4. 
 
 %% Interpolate profile pressure using Rtraj data
-%  Rtraj data (dpres and dt) is coarse -- as in, there are few points. 
+%  Rtraj data (dpres and dt_sec) is coarse -- as in, there are few points. 
 %  Profile data (fpres) is fine -- many points. 
 %  output of interpolation is relative time [sec] for fine Profile fpres data
-
-%% Pelle's method/solution : restrict pres to only increasing points
+%
+% Pelle's method/solution : restrict pres to only increasing points
 %  where internal waves cause pressure to not strictly increase, we turn
 %  these values into NaNs and notify the user of the number of NaNs in the
 %  final dataset and the pressure differences
 
-%we dont want to interpolate with NaNs, so first we remove repeat numbers
-%or numbers that are not strictly increasing, we interpolate without them,
-%and then add the NaNs back in in their appropriate levels after
-%interpolating. 
-mask_inc0 = logical([0; (diff(dpres_m)>=0)]);
-dpres_m = dpres_m(~mask_inc0);
-mask_inc1 = (diff(fpres_m)>=0);
-fpres_m = fpres_m(~logical([0; mask_inc1]));
+%% Pressure and Time Vectors
+% Here we make sure there are no pressure inversions or duplicate numbers
+% (otherwise interp1 wont work)
 
-vt_sec = interp1(dpres_m, dt_sec(~mask_inc0), fpres_m, 'linear');
-%vt_fracDay = vt_sec/86400;
-%vt = vt_fracDay+int_day;
-%vt_datetime = days(vt)+epoch;
+both_p_vecs{1} = fpres_m;
+both_p_vecs{2} = dpres_m;
+for idx = 1:length(both_p_vecs)
+    pres = both_p_vecs{idx};
+    % Mask - restricts for strictly ascentding values (deep-->shallow)
+    mask_strct_incr = logical([0; (diff(pres)>=0)]); 
+    track_masks{idx,1} = mask_strct_incr;
+    pres = pres(~mask_strct_incr);
+    % Mask - removes dulplicates
+    [~, mask_rmv_dupl] = unique(pres, "stable");
+    updated_p_vecs{idx} = pres(mask_rmv_dupl);
+    
+    %update rmv_dupl mask to a logical sequence (for use later)
+    full_list = 1:1:length(pres);
+    missing_inds = setdiff(full_list, mask_rmv_dupl);
+    mask_rmv_dupl_lgc = false(size(pres));
+    mask_rmv_dupl_lgc(missing_inds) = true;
+    track_masks{idx, 2} = mask_rmv_dupl_lgc;
+    
+    % IF - idx 2 will always be Rtraj pres data, only Rtraj data has accompanying 
+    % time data (dt_sec) that should be masked to remove the same indices of values
+    % removed from dpres_m
+    if idx == 2  
+        dt_sec = dt_sec(~mask_strct_incr);
+        dt_sec = dt_sec(mask_rmv_dupl);
+    end
+end
+fpres_m_maskd = updated_p_vecs{1};
+dpres_m_maskd = updated_p_vecs{2};
+
+%% Plot P vs T for both Rtraj and Profile 
+% figure
+% plot(dt_sec, dpres_m_maskd, 'b+', vt_sec, fpres_m_maskd, 'm.')
+%% Print out pressure inversions being removed and their distances 
+fpres_m_inv = find(track_masks{1,1}==1);
+if ~isempty(fpres_m_inv)
+    %take ind locations of inversions, pull the index immediate before, and
+    %use those two pres values to calculate pressure discrepancy to print
+    %in the statement.
+    b4_inv = fpres_m_inv-1;
+    presb4inv = fpres_m(b4_inv);
+    presatinv = fpres_m(fpres_m_inv);
+    rela_depth_shift = presb4inv-presatinv;
+    fprintf("Pressure inversion found at index/indices %d of %d (where pres vec is ascending)/n ..." + ...
+       "with relative depth shift(s): %d", fpres_m_inv, length(fpres_m), rela_depth_shift)
+end
 
 
-%Velocity     
-v_mpers1 = diff(fpres_m)./diff(vt_sec);
+% we also track if fpres is out of bounds of dpres. All values removed from
+% fpres due to pres invs, duplicates, or being out of bounds of dpres will
+% result in NaNs for psal due to lack of sufficient information for
+% calculation of thermal lag.
+mask_max_lgc = false(size(fpres_m));
+inds_max = find(fpres_m>max(dpres_m));
+mask_max_lgc(inds_max) = true;
+track_masks{1,3} = mask_max_lgc;
+%should I also track where fpres is less than the minimum of dpres?
+salt_cor_mask = track_masks{1,1}|track_masks{1,2}|track_masks{1,3};
 
-% if any profile pressure values are outside of Rtraj pres values bounds 
-% they should turn into NaNs. 
-NaNmask = find(fpres_m>max(dpres_m));
-fpres_m(NaNmask) = NaN;
+%% Interpolate relative time (seconds) for Profile pressure
+vt_sec = interp1(dpres_m_maskd, dt_sec, fpres_m_maskd, 'linear');
 
-    intermed = diff(fpres_m)./(v_mpers1);
-    nanmask = find(isnan(intermed))+1; %we add 1 bc we always lose the first fpres number to diff() below. 
-    e_time0 = cumsum(diff(fpres_m)./(v_mpers1), 'omitnan');
-    e_time0 = [fpres_m(1); e_time0];
-    e_time0(nanmask) = NaN;
-    e_time1 = e_time0(end)-e_time0'; % rise time
+%% Recreate Pelle's rise time plot
+vert_vel = diff(dpres_m_maskd)./diff(dt_sec);
+figure
+plot([vert_vel;0]*-1, dpres_m_maskd, 'b-')
+set(gca,'ydir','rev'); hold on
+ylabel('pressure [m]')
+xlabel('w [m/s]')
+xlim([-.1 .2])
 
-    nanmask1 = find(isnan(e_time1));
-    e_time1(nanmask1) = [];
+%% Velocity     
+%it is possible for velocity to have nans if fpres_m_maskd has values out
+%of bounds of dpres_m_maskd
+v_mpers1 = diff(fpres_m_maskd)./diff(vt_sec);
 
-    %Temporary Code: is e_time1 strictly increasing?
-    strct_inc = find((diff(e_time1)>=0));
+%% Elapsed time 
+intermed = diff(fpres_m_maskd)./(v_mpers1);
+nanmask1 = find(isnan(intermed));
+e_time0 = cumsum(diff(fpres_m_maskd)./(v_mpers1), 'omitnan');
+    %cant leave NaNs in cumsum, so we omit them, they turn to zeros
+e_time0(nanmask1) = NaN;
+    %add them back in here so that we keep our calculations sound
+e_time0 = [0; e_time0]; 
+    %add zero here for first index we lost to diff() in etime0 above
+e_time1 = e_time0(end)-e_time0'; % rise time
+
+nanmask2 = find(isnan(e_time1));
+e_time1(nanmask2) = [];
+    %now we turn all the NaNs to [] to pass into celltm_sbe
 
 %Call G. Johnson's thermal mass function.  Note vectors must be ordered
 %from bottom of cast up.
@@ -289,12 +352,48 @@ salt_cor0=fliplr(celltm_sbe41(f.psal(ok(nok:-1:1)), temp_68(ok(nok:-1:1)), ...
     f.pres(ok(nok:-1:1)), e_time11(ok(nok:-1:1)), ...
     alph,tau));
 
-ok = 1:1:length(e_time1);
-nok = max(ok);
-salt_cor1=fliplr(celltm_sbe41(f.psal(ok(nok:-1:1)), temp_68(ok(nok:-1:1)), ...
-    f.pres(ok(nok:-1:1)), e_time1(ok(nok:-1:1)), ...
+ok_VAR = 1:1:length(e_time1);
+nok_VAR = max(ok_VAR);
+%adjust fpres_m, temp --> inputs without NaN values 
+fpres_VAR = f.pres(~salt_cor_mask);
+temp_68_VAR = temp_68(~salt_cor_mask);
+fpsal_VAR = f.psal(~salt_cor_mask);
+salt_cor11=fliplr(celltm_sbe41(fpsal_VAR(ok_VAR(nok_VAR:-1:1)), temp_68_VAR(ok_VAR(nok_VAR:-1:1)), ...
+    fpres_VAR(ok_VAR(nok_VAR:-1:1)), e_time1(ok_VAR(nok_VAR:-1:1)), ...
     alph,tau));
 
+%Here we filter the salinity correction back into the appropriate indicies
+nanvec = nan(1,length(fpres_m));
+nanvec(~salt_cor_mask) = salt_cor11;
+salt_cor1 = nanvec;
+if sum(~salt_cor_mask) ~= length(salt_cor11) || length(ok) ~= length(salt_cor1)
+    disp("Error, discrepancy between levels of salinity omitted from thermal lag calculation and levels calculated")
+end
+
+%% PLOT NO THERM LAG ADJ, ORIG ADJ, UPDATED ADJ
+% fpres_VAR_plot = nanvec(~salt_cor_mask);
+% figure
+% title(string(ncfile(end-14:end)), 'Interpreter', 'none'); hold on
+% subtitle('Thermal lag adjustment comparison'); hold on
+% xlabel('salinity [psu]'); hold on;
+% ylabel('pressure [dbar]'); set(gca,'ydir','rev'); hold on;
+% plot(f.psal, f.pres, 'k.', salt_cor0, f.pres, 'b+', salt_cor1, f.pres, 'm*')
+% legend('No TL adj', 'Orig TL adj vel=0.1m/s', 'VAR TL adj')
+% 
+% dtdp = gradient(temp_68(ok), f.pres(ok));
+% figure
+% title(string(ncfile(end-14:end)), 'Interpreter', 'none'); hold on
+% subtitle('Difference btwn original psal data and TL adjusted data'); hold on
+% ylabel('salinty [psu]')
+% plot(fpres_VAR, fpsal_VAR-salt_cor11, 'm*'); hold on;
+% plot(f.pres(ok), f.psal(ok)-salt_cor0, 'b.')
+% ylabel('salinity [psu]')
+% xlabel('pressure [dbar]');
+% hold on
+% yyaxis right;
+% ylabel('temperature gradient')
+% plot(f.pres(ok), dtdp, 'y-')
+% legend('orig - VARTL', 'orig - stndTL', 'temp gradient')
 
 if use_adjust == 0  
     varid=netcdf.inqVarID(ncid,'PRES');
@@ -346,7 +445,7 @@ netcdf.putVar(ncid,varid,psal);
 varid=netcdf.inqVarID(ncid,'PSAL_ADJUSTED_QC');
 netcdf.putVar(ncid,varid,psal_qc);
 
-varid=netcdf.inqVarID(ncid,'PSAL_ADJUSTED_ERROR');
+varid=netcdf.inqVarID(ncid,'PSAL_ADJUSTED_ERROR'); 
 foo=netcdf.getVar(ncid,varid);
 error = abs(f.psal(ok)-salt_cor1);
 psal_err = zeros(size(foo));
